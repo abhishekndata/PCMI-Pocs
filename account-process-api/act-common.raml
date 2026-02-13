@@ -1,0 +1,85 @@
+#%RAML 1.0 Library
+usage: Common traits and headers for API standardization
+
+traits:
+  postMethod:
+    headers:
+      x-api-correlationId:
+        type: string
+        required: true
+        description: Unique correlation ID for request tracking
+        example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+      x-api-transaction-id:
+        type: string
+        required: true
+        description: Transaction identifier
+        example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+      x-source-system:
+        type: string
+        required: false
+        description: Source system identifier
+        example: "rpa"
+      x-api-client-id:
+        type: string
+        required: true
+        description: Client application identifier
+        example: "client-id-xxxxxx-xxxxxx"
+    responses:
+      200:
+        headers:
+          x-api-correlationId:
+            type: string
+            required: true
+            description: Correlation ID returned from request
+            example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+          x-api-transaction-id:
+            type: string
+            required: true
+            description: Transaction ID returned from request
+            example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+          x-response-system:
+            type: string
+            required: false
+            description: Response system identifier
+            example: "Mulesoft"
+
+  getMethod:
+    headers:
+      x-api-correlationId:
+        type: string
+        required: true
+        description: Unique correlation ID for request tracking
+        example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+      x-api-transaction-id:
+        type: string
+        required: true
+        description: Transaction identifier
+        example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+      x-source-system:
+        type: string
+        required: false
+        description: Source system identifier
+        example: "rpa"
+      x-api-client-id:
+        type: string
+        required: true
+        description: Client application identifier
+        example: "client-id-xxxxxx-xxxxxx"
+    responses:
+      200:
+        headers:
+          x-api-correlationId:
+            type: string
+            required: true
+            description: Correlation ID returned from request
+            example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+          x-api-transaction-id:
+            type: string
+            required: true
+            description: Transaction ID returned from request
+            example: "bad0e5b0-9191-11eb-a0b3-36548d51aeee"
+          x-response-system:
+            type: string
+            required: false
+            description: Response system identifier
+            example: "Mulesoft"

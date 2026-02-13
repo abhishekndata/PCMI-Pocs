@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- Global Error Handler -->
+    <error-handler name="global-error-handler" doc:name="Global Error Handler" doc:id="global-error-handler">
+        
+        <!-- Salesforce Connectivity Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Salesforce Connectivity Error" doc:id="salesforce-connectivity-error" type="SALESFORCE:CONNECTIVITY">
+            <logger level="ERROR" doc:name="Log Salesforce Connectivity Error" doc:id="log-salesforce-connectivity-error" 
+                    message="Salesforce connectivity error occurred. Correlation ID: #[correlationId]. Error: #[error.description]"/>
+            <ee:transform doc:name="Error Response Transform" doc:id="salesforce-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "SALESFORCE_CONNECTIVITY_ERROR",
+        "message": "Unable to connect to Salesforce. Please check your credentials and network connectivity.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- Salesforce Security/Authentication Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Salesforce Authentication Error" doc:id="salesforce-auth-error" type="SALESFORCE:INVALID_LOGIN">
+            <logger level="ERROR" doc:name="Log Salesforce Auth Error" doc:id="log-salesforce-auth-error"
+                    message="Salesforce authentication error occurred. Correlation ID: #[correlationId]. Error: #[error.description]"/>
+            <ee:transform doc:name="Auth Error Response Transform" doc:id="salesforce-auth-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "SALESFORCE_AUTHENTICATION_ERROR",
+        "message": "Authentication failed with Salesforce. Please verify your credentials.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">401</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- Database Connectivity Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Database Connectivity Error" doc:id="database-connectivity-error" type="DB:CONNECTIVITY">
+            <logger level="ERROR" doc:name="Log Database Connectivity Error" doc:id="log-database-connectivity-error"
+                    message="Database connectivity error occurred. Correlation ID: #[correlationId]. Error: #[error.description]"/>
+            <ee:transform doc:name="DB Error Response Transform" doc:id="database-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "DATABASE_CONNECTIVITY_ERROR",
+        "message": "Unable to connect to the database. Please check database connectivity.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- Database Query Execution Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Database Query Error" doc:id="database-query-error" type="DB:QUERY_EXECUTION">
+            <logger level="ERROR" doc:name="Log Database Query Error" doc:id="log-database-query-error"
+                    message="Database query execution error occurred. Correlation ID: #[correlationId]. Error: #[error.description]"/>
+            <ee:transform doc:name="DB Query Error Response Transform" doc:id="database-query-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "DATABASE_QUERY_ERROR",
+        "message": "Database query execution failed. Please check the query syntax and data.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- Data Transformation Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Transformation Error" doc:id="transformation-error" type="MULE:EXPRESSION">
+            <logger level="ERROR" doc:name="Log Transformation Error" doc:id="log-transformation-error"
+                    message="Data transformation error occurred. Correlation ID: #[correlationId]. Error: #[error.description]"/>
+            <ee:transform doc:name="Transformation Error Response" doc:id="transformation-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "DATA_TRANSFORMATION_ERROR",
+        "message": "Data transformation failed. Please check the data format and mapping.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+
+        <!-- Generic/Unknown Errors -->
+        <on-error-continue enableNotifications="true" logException="true" doc:name="Generic Error" doc:id="generic-error" type="ANY">
+            <logger level="ERROR" doc:name="Log Generic Error" doc:id="log-generic-error"
+                    message="Unexpected error occurred. Correlation ID: #[correlationId]. Error: #[error.description]. Error Type: #[error.errorType]"/>
+            <ee:transform doc:name="Generic Error Response Transform" doc:id="generic-error-response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "error": {
+        "code": "INTERNAL_SERVER_ERROR",
+        "message": "An unexpected error occurred. Please contact support if the issue persists.",
+        "correlationId": correlationId,
+        "timestamp": now()
+    }
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus">500</ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+        </on-error-continue>
+        
+    </error-handler>
+
+</mule>

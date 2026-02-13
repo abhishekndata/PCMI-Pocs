@@ -1,0 +1,29 @@
+# Salesforce Configuration
+salesforce:
+  username: "abhishek.hunashyal570@agentforce.com"
+  password: "NDATA!123"
+  securityToken: "XbKwn5LTlYuNwmJ6uUVEMY65G"
+
+# PostgreSQL Database Configuration
+database:
+  url: "jdbc:postgresql://localhost:5432/MuleDB"
+  driver: "org.postgresql.Driver"
+  user: "postgres"
+  password: "Abhi@123"
+
+# HTTP Listener Configuration
+http:
+  listener:
+    host: "0.0.0.0"
+    port: "8081"
+    protocol: "HTTP"
+
+# API Configuration
+api:
+  basePath: "/api/v1"
+  version: "1.0.0"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  correlationIdHeader: "X-Correlation-ID"

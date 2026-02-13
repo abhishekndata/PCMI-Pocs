@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- Main Flow: Account Sync API -->
+    <flow name="account-sys-api-main-flow" doc:name="Account Sync API Main Flow" doc:id="account-sys-api-main-flow">
+        
+        <!-- HTTP Listener -->
+        <http:listener doc:name="HTTP Listener" doc:id="http-listener" 
+                       config-ref="HTTP_Listener_config" 
+                       path="${api.basePath}/accounts/sync" 
+                       allowedMethods="GET,POST">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[#[output application/java
+---
+{
+	"Content-Type": "application/json",
+	"X-Correlation-ID": correlationId
+}]]]></http:headers>
+            </http:response>
+        </http:listener>
+
+        <!-- Set Correlation ID -->
+        <set-variable value="#[message.inboundProperties.'X-Correlation-ID' default uuid()]" 
+                     doc:name="Set Correlation ID" 
+                     doc:id="set-correlation-id" 
+                     variableName="correlationId"/>
+
+        <!-- Log API Invocation -->
+        <logger level="INFO" doc:name="Log API Invocation" doc:id="log-api-invocation" 
+                message="Account Sync API invoked. Method: #[attributes.method]. Correlation ID: #[vars.correlationId]. Query Params: #[attributes.queryParams]"/>
+
+        <!-- Extract Query Parameters -->
+        <ee:transform doc:name="Extract Parameters" doc:id="extract-parameters">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    method: attributes.method,
+    queryParams: attributes.queryParams,
+    requestBody: payload
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="lastModifiedDate"><![CDATA[%dw 2.0
+output application/java
+---
+if (attributes.method == "GET")
+    attributes.queryParams.lastModifiedDate
+else if (attributes.method == "POST" and payload.lastModifiedDate?)
+    payload.lastModifiedDate
+else
+    null]]></ee:set-variable>
+                <ee:set-variable variableName="requestMethod" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.method]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <!-- Route to Implementation Flow -->
+        <flow-ref doc:name="Call Account Sync Implementation" doc:id="call-account-sync-impl" name="account-sync-implementation-sub-flow"/>
+
+        <!-- Final Response Transformation -->
+        <ee:transform doc:name="Final Response Transform" doc:id="final-response-transform">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "status": "SUCCESS",
+    "message": "Account synchronization completed successfully",
+    "correlationId": vars.correlationId,
+    "timestamp": now(),
+    "summary": payload
+}]]></ee:set-payload>
+            </ee:message>
+            <ee:variables>
+                <ee:set-variable variableName="httpStatus">200</ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <!-- Log Success Response -->
+        <logger level="INFO" doc:name="Log Success Response" doc:id="log-success-response" 
+                message="Account Sync API completed successfully. Correlation ID: #[vars.correlationId]. Records processed: #[payload.summary.recordsProcessed default 0]"/>
+
+    </flow>
+
+</mule>

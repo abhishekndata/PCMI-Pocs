@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <!-- Main Implementation Sub-flow -->
+    <sub-flow name="account-sync-implementation-sub-flow" doc:name="Account Sync Implementation Sub Flow" doc:id="account-sync-implementation-sub-flow">
+        
+        <!-- Read Accounts from Salesforce -->
+        <flow-ref doc:name="Read Accounts from Salesforce" doc:id="read-accounts-ref" name="read-accounts-sub-flow"/>
+        
+        <!-- Transform Accounts for Database -->
+        <flow-ref doc:name="Transform Accounts for DB" doc:id="transform-accounts-ref" name="private-prepare-db-payload-flow"/>
+        
+        <!-- Upsert Accounts to Database -->
+        <flow-ref doc:name="Upsert Accounts to Database" doc:id="upsert-accounts-ref" name="upsert-account-sub-flow"/>
+        
+    </sub-flow>
+
+    <!-- Read Accounts Sub-flow -->
+    <sub-flow name="read-accounts-sub-flow" doc:name="Read Accounts Sub Flow" doc:id="read-accounts-sub-flow">
+        
+        <!-- Log Before Salesforce Query -->
+        <logger level="INFO" doc:name="Log Before Salesforce Query" doc:id="log-before-sf-query" 
+                message="Starting Salesforce query for Account records. Correlation ID: #[vars.correlationId]. Last Modified Date Filter: #[vars.lastModifiedDate default 'None']"/>
+
+        <!-- Build Dynamic SOQL Query -->
+        <ee:transform doc:name="Build SOQL Query" doc:id="build-soql-query">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    soqlQuery: if (vars.lastModifiedDate != null)
+        "SELECT Id, Name, Phone, BillingCity FROM Account WHERE LastModifiedDate >= " ++ vars.lastModifiedDate ++ " ORDER BY LastModifiedDate DESC"
+    else
+        "SELECT Id, Name, Phone, BillingCity FROM Account ORDER BY LastModifiedDate DESC LIMIT 1000"
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!-- Execute Salesforce Query -->
+        <salesforce:query doc:name="Query Salesforce Accounts" doc:id="query-salesforce-accounts" 
+                         config-ref="Salesforce_Config">
+            <salesforce:salesforce-query><![CDATA[#[payload.soqlQuery]]]></salesforce:salesforce-query>
+        </salesforce:query>
+
+        <!-- Log After Salesforce Query -->
+        <logger level="INFO" doc:name="Log After Salesforce Query" doc:id="log-after-sf-query" 
+                message="Salesforce query completed successfully. Correlation ID: #[vars.correlationId]. Records retrieved: #[sizeOf(payload)]"/>
+
+        <!-- Store Original Salesforce Data -->
+        <set-variable value="#[payload]" doc:name="Store SF Data" doc:id="store-sf-data" variableName="salesforceData"/>
+
+    </sub-flow>
+
+    <!-- Private Transform Flow -->
+    <flow name="private-prepare-db-payload-flow" doc:name="Private Prepare DB Payload Flow" doc:id="private-prepare-db-payload-flow">
+        
+        <!-- Log Before Transformation -->
+        <logger level="INFO" doc:name="Log Before Transformation" doc:id="log-before-transformation" 
+                message="Starting data transformation for database. Correlation ID: #[vars.correlationId]. Input records: #[sizeOf(payload)]"/>
+
+        <!-- Transform using External DataWeave -->
+        <ee:transform doc:name="Transform to DB Payload" doc:id="transform-to-db-payload" 
+                     resource="dwl/mag-account-to-db-payload.dwl"/>
+
+        <!-- Log After Transformation -->
+        <logger level="INFO" doc:name="Log After Transformation" doc:id="log-after-transformation" 
+                message="Data transformation completed successfully. Correlation ID: #[vars.correlationId]. Output records: #[sizeOf(payload)]"/>
+
+        <!-- Store Transformed Data -->
+        <set-variable value="#[payload]" doc:name="Store Transformed Data" doc:id="store-transformed-data" variableName="transformedData"/>
+
+    </flow>
+
+    <!-- Upsert Account Sub-flow -->
+    <sub-flow name="upsert-account-sub-flow" doc:name="Upsert Account Sub Flow" doc:id="upsert-account-sub-flow">
+        
+        <!-- Check if records exist -->
+        <choice doc:name="Check Records Exist" doc:id="check-records-exist">
+            <when expression="#[sizeOf(payload) > 0]">
+                
+                <!-- Log Before Database Operations -->
+                <logger level="INFO" doc:name="Log Before DB Operations" doc:id="log-before-db-operations" 
+                        message="Starting database upsert operations. Correlation ID: #[vars.correlationId]. Records to process: #[sizeOf(payload)]"/>
+
+                <!-- Initialize Counters -->
+                <set-variable value="0" doc:name="Initialize Insert Counter" doc:id="init-insert-counter" variableName="insertCount"/>
+                <set-variable value="0" doc:name="Initialize Update Counter" doc:id="init-update-counter" variableName="updateCount"/>
+                <set-variable value="0" doc:name="Initialize Error Counter" doc:id="init-error-counter" variableName="errorCount"/>
+
+                <!-- Process Each Record -->
+                <foreach doc:name="Process Each Record" doc:id="process-each-record">
+                    
+                    <!-- Check if Record Exists -->
+                    <db:select doc:name="Check Record Exists" doc:id="check-record-exists" config-ref="Database_Config">
+                        <db:sql><![CDATA[SELECT COUNT(*) as record_count FROM Customers WHERE Salesforce_Id = :salesforceId]]></db:sql>
+                        <db:input-parameters><![CDATA[#[{
+                            salesforceId: payload.Salesforce_Id
+                        }]]]></db:input-parameters>
+                    </db:select>
+
+                    <!-- Store Record Count -->
+                    <set-variable value="#[payload[0].record_count]" doc:name="Store Record Count" doc:id="store-record-count" variableName="recordExists"/>
+
+                    <!-- Restore Current Record -->
+                    <set-payload value="#[vars.transformedData[vars.counter]]" doc:name="Restore Current Record" doc:id="restore-current-record"/>
+
+                    <!-- Upsert Logic -->
+                    <choice doc:name="Upsert Choice" doc:id="upsert-choice">
+                        <when expression="#[vars.recordExists > 0]">
+                            <!-- Update Existing Record -->
+                            <try doc:name="Try Update" doc:id="try-update">
+                                <db:update doc:name="Update Record" doc:id="update-record" config-ref="Database_Config">
+                                    <db:sql><![CDATA[UPDATE Customers 
+SET First_Name = :firstName, 
+    Phone = :phone, 
+    Address = :address 
+WHERE Salesforce_Id = :salesforceId]]></db:sql>
+                                    <db:input-parameters><![CDATA[#[{
+                                        firstName: payload.First_Name,
+                                        phone: payload.Phone,
+                                        address: payload.Address,
+                                        salesforceId: payload.Salesforce_Id
+                                    }]]]></db:input-parameters>
+                                </db:update>
+                                
+                                <!-- Increment Update Counter -->
+                                <set-variable value="#[vars.updateCount + 1]" doc:name="Increment Update Counter" doc:id="increment-update-counter" variableName="updateCount"/>
+                                
+                                <error-handler>
+                                    <on-error-continue enableNotifications="true" logException="true" doc:name="Update Error Handler" doc:id="update-error-handler">
+                                        <logger level="ERROR" doc:name="Log Update Error" doc:id="log-update-error" 
+                                                message="Error updating record with Salesforce ID: #[payload.Salesforce_Id]. Correlation ID: #[vars.correlationId]. Error: #[error.description]"/>
+                                        <set-variable value="#[vars.errorCount + 1]" doc:name="Increment Error Counter" doc:id="increment-error-counter-update" variableName="errorCount"/>
+                                    </on-error-continue>
+                                </error-handler>
+                            </try>
+                        </when>
+                        <otherwise>
+                            <!-- Insert New Record -->
+                            <try doc:name="Try Insert" doc:id="try-insert">
+                                <db:insert doc:name="Insert Record" doc:id="insert-record" config-ref="Database_Config">
+                                    <db:sql><![CDATA[INSERT INTO Customers (Salesforce_Id, First_Name, Phone, Address) 
+VALUES (:salesforceId, :firstName, :phone, :address)]]></db:sql>
+                                    <db:input-parameters><![CDATA[#[{
+                                        salesforceId: payload.Salesforce_Id,
+                                        firstName: payload.First_Name,
+                                        phone: payload.Phone,
+                                        address: payload.Address
+                                    }]]]></db:input-parameters>
+                                </db:insert>
+                                
+                                <!-- Increment Insert Counter -->
+                                <set-variable value="#[vars.insertCount + 1]" doc:name="Increment Insert Counter" doc:id="increment-insert-counter" variableName="insertCount"/>
+                                
+                                <error-handler>
+                                    <on-error-continue enableNotifications="true" logException="true" doc:name="Insert Error Handler" doc:id="insert-error-handler">
+                                        <logger level="ERROR" doc:name="Log Insert Error" doc:id="log-insert-error" 
+                                                message="Error inserting record with Salesforce ID: #[payload.Salesforce_Id]. Correlation ID: #[vars.correlationId]. Error: #[error.description]"/>
+                                        <set-variable value="#[vars.errorCount + 1]" doc:name="Increment Error Counter" doc:id="increment-error-counter-insert" variableName="errorCount"/>
+                                    </on-error-continue>
+                                </error-handler>
+                            </try>
+                        </otherwise>
+                    </choice>
+
+                </foreach>
+
+                <!-- Log After Database Operations -->
+                <logger level="INFO" doc:name="Log After DB Operations" doc:id="log-after-db-operations" 
+                        message="Database operations completed. Correlation ID: #[vars.correlationId]. Records inserted: #[vars.insertCount]. Records updated: #[vars.updateCount]. Errors: #[vars.errorCount]"/>
+
+                <!-- Build Summary Response -->
+                <ee:transform doc:name="Build Summary Response" doc:id="build-summary-response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    recordsProcessed: vars.insertCount + vars.updateCount,
+    recordsInserted: vars.insertCount,
+    recordsUpdated: vars.updateCount,
+    recordsWithErrors: vars.errorCount,
+    totalRecordsRetrievedFromSalesforce: sizeOf(vars.salesforceData)
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+
+            </when>
+            <otherwise>
+                <!-- No Records to Process -->
+                <logger level="INFO" doc:name="Log No Records" doc:id="log-no-records" 
+                        message="No records to process. Correlation ID: #[vars.correlationId]"/>
+                
+                <ee:transform doc:name="No Records Response" doc:id="no-records-response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    recordsProcessed: 0,
+    recordsInserted: 0,
+    recordsUpdated: 0,
+    recordsWithErrors: 0,
+    totalRecordsRetrievedFromSalesforce: 0
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </otherwise>
+        </choice>
+
+    </sub-flow>
+
+</mule>

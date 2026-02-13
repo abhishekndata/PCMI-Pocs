@@ -1,0 +1,42 @@
+#%RAML 1.0
+title: Account-process-api
+description: Account-handling-api
+version: 1.0.0
+baseUri: http://internal-domain.net
+protocols: [HTTPS]
+
+uses:
+  common: act-common.raml
+
+types:
+  customers-post-request-datatype: !include types/customers-post-request-datatype.raml
+  customers-post-response-datatype: !include types/customers-post-response-datatype.raml
+  status-get-response-datatype: !include types/status-get-response-datatype.raml
+
+/:
+  /customers:
+    post:
+      is: [common.postMethod]
+      description: Create a new customer account
+      body:
+        application/json:
+          type: customers-post-request-datatype
+          example: !include examples/post-customers-request-example.raml
+      responses:
+        200:
+          body:
+            application/json:
+              type: customers-post-response-datatype
+              example: !include examples/post-customers-response-example.raml
+
+  /status:
+    /{id}:
+      get:
+        is: [common.getMethod]
+        description: Get account status by ID
+        responses:
+          200:
+            body:
+              application/json:
+                type: status-get-response-datatype
+                example: !include examples/get-status-response-example.raml

@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:db="http://www.mulesoft.org/schema/mule/db"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+		http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+    <munit:config name="account-sys-api-test-suite.xml"/>
+
+    <!-- Test 1: Positive Scenario - Successful Account Sync -->
+    <munit:test name="account-sys-api-main-flow-positive-test" 
+                doc:name="Account Sync API - Positive Scenario" 
+                description="Test successful account synchronization from Salesforce to PostgreSQL">
+        
+        <munit:behavior>
+            <!-- Mock Salesforce Query Response -->
+            <munit-tools:mock-when doc:name="Mock Salesforce Query" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[
+                        {
+                            'Id': '0031234567890ABC',
+                            'Name': 'Test Account 1',
+                            'Phone': '+1-555-0123',
+                            'BillingCity': 'San Francisco'
+                        },
+                        {
+                            'Id': '0031234567890DEF',
+                            'Name': 'Test Account 2',
+                            'Phone': '+1-555-0456',
+                            'BillingCity': 'New York'
+                        }
+                    ]]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock Database Select (Check Record Exists) - Return 0 for new records -->
+            <munit-tools:mock-when doc:name="Mock DB Select Check" processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Record Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{'record_count': 0}]]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock Database Insert Operations -->
+            <munit-tools:mock-when doc:name="Mock DB Insert" processor="db:insert">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Record"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <!-- Execute the main flow via HTTP GET -->
+            <http:request method="GET" doc:name="HTTP GET Request" 
+                         config-ref="HTTP_Request_configuration" 
+                         path="/api/v1/accounts/sync">
+                <http:query-params><![CDATA[#[{}]]]></http:query-params>
+            </http:request>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Verify Response Status -->
+            <munit-tools:assert-that 
+                doc:name="Assert HTTP Status 200" 
+                expression="#[attributes.statusCode]" 
+                is="#[MunitTools::equalTo(200)]"/>
+
+            <!-- Verify Response Structure -->
+            <munit-tools:assert-that 
+                doc:name="Assert Response Status is SUCCESS" 
+                expression="#[payload.status]" 
+                is="#[MunitTools::equalTo('SUCCESS')]"/>
+
+            <!-- Verify Records Processed -->
+            <munit-tools:assert-that 
+                doc:name="Assert Records Processed" 
+                expression="#[payload.summary.recordsProcessed]" 
+                is="#[MunitTools::equalTo(2)]"/>
+
+            <!-- Verify Records Inserted -->
+            <munit-tools:assert-that 
+                doc:name="Assert Records Inserted" 
+                expression="#[payload.summary.recordsInserted]" 
+                is="#[MunitTools::equalTo(2)]"/>
+
+            <!-- Verify Correlation ID exists -->
+            <munit-tools:assert-that 
+                doc:name="Assert Correlation ID exists" 
+                expression="#[payload.correlationId]" 
+                is="#[MunitTools::not(MunitTools::nullValue())]"/>
+
+            <!-- Verify Salesforce Query was called -->
+            <munit-tools:verify-call doc:name="Verify Salesforce Query Call" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(1)]"/>
+            </munit-tools:verify-call>
+
+            <!-- Verify Database Insert was called twice -->
+            <munit-tools:verify-call doc:name="Verify DB Insert Calls" processor="db:insert">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Insert Record"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(2)]"/>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test 2: Negative Scenario - Salesforce Connection Error -->
+    <munit:test name="account-sys-api-main-flow-salesforce-error-test" 
+                doc:name="Account Sync API - Salesforce Error Scenario" 
+                description="Test handling of Salesforce connectivity errors">
+        
+        <munit:behavior>
+            <!-- Mock Salesforce Query to throw connectivity error -->
+            <munit-tools:mock-when doc:name="Mock Salesforce Error" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="SALESFORCE:CONNECTIVITY" description="Connection to Salesforce failed"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <!-- Execute the main flow via HTTP GET -->
+            <http:request method="GET" doc:name="HTTP GET Request" 
+                         config-ref="HTTP_Request_configuration" 
+                         path="/api/v1/accounts/sync">
+                <http:query-params><![CDATA[#[{}]]]></http:query-params>
+            </http:request>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Verify Response Status is 500 (Server Error) -->
+            <munit-tools:assert-that 
+                doc:name="Assert HTTP Status 500" 
+                expression="#[attributes.statusCode]" 
+                is="#[MunitTools::equalTo(500)]"/>
+
+            <!-- Verify Error Response Structure -->
+            <munit-tools:assert-that 
+                doc:name="Assert Error Code" 
+                expression="#[payload.error.code]" 
+                is="#[MunitTools::equalTo('SALESFORCE_CONNECTIVITY_ERROR')]"/>
+
+            <!-- Verify Error Message -->
+            <munit-tools:assert-that 
+                doc:name="Assert Error Message Contains Salesforce" 
+                expression="#[payload.error.message]" 
+                is="#[MunitTools::containsString('Salesforce')]"/>
+
+            <!-- Verify Correlation ID exists in error response -->
+            <munit-tools:assert-that 
+                doc:name="Assert Correlation ID exists in error" 
+                expression="#[payload.error.correlationId]" 
+                is="#[MunitTools::not(MunitTools::nullValue())]"/>
+
+            <!-- Verify Salesforce Query was called -->
+            <munit-tools:verify-call doc:name="Verify Salesforce Query Call" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(1)]"/>
+            </munit-tools:verify-call>
+
+            <!-- Verify Database operations were not called -->
+            <munit-tools:verify-call doc:name="Verify DB Insert Not Called" processor="db:insert">
+                <munit-tools:times is="#[MunitTools::equalTo(0)]"/>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test 3: Negative Scenario - Database Connection Error -->
+    <munit:test name="account-sys-api-main-flow-database-error-test" 
+                doc:name="Account Sync API - Database Error Scenario" 
+                description="Test handling of database connectivity errors">
+        
+        <munit:behavior>
+            <!-- Mock Salesforce Query Response -->
+            <munit-tools:mock-when doc:name="Mock Salesforce Query" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[
+                        {
+                            'Id': '0031234567890ABC',
+                            'Name': 'Test Account 1',
+                            'Phone': '+1-555-0123',
+                            'BillingCity': 'San Francisco'
+                        }
+                    ]]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock Database Select to throw connectivity error -->
+            <munit-tools:mock-when doc:name="Mock DB Connectivity Error" processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Record Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="DB:CONNECTIVITY" description="Database connection failed"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <!-- Execute the main flow via HTTP GET -->
+            <http:request method="GET" doc:name="HTTP GET Request" 
+                         config-ref="HTTP_Request_configuration" 
+                         path="/api/v1/accounts/sync">
+                <http:query-params><![CDATA[#[{}]]]></http:query-params>
+            </http:request>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Verify Response Status is 500 (Server Error) -->
+            <munit-tools:assert-that 
+                doc:name="Assert HTTP Status 500" 
+                expression="#[attributes.statusCode]" 
+                is="#[MunitTools::equalTo(500)]"/>
+
+            <!-- Verify Error Response Structure -->
+            <munit-tools:assert-that 
+                doc:name="Assert Error Code" 
+                expression="#[payload.error.code]" 
+                is="#[MunitTools::equalTo('DATABASE_CONNECTIVITY_ERROR')]"/>
+
+            <!-- Verify Error Message -->
+            <munit-tools:assert-that 
+                doc:name="Assert Error Message Contains Database" 
+                expression="#[payload.error.message]" 
+                is="#[MunitTools::containsString('database')]"/>
+
+            <!-- Verify Salesforce Query was called successfully -->
+            <munit-tools:verify-call doc:name="Verify Salesforce Query Call" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(1)]"/>
+            </munit-tools:verify-call>
+
+            <!-- Verify Database Select was called -->
+            <munit-tools:verify-call doc:name="Verify DB Select Call" processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Record Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(1)]"/>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test 4: Update Scenario - Existing Records Update -->
+    <munit:test name="account-sys-api-update-scenario-test" 
+                doc:name="Account Sync API - Update Existing Records" 
+                description="Test updating existing records in database">
+        
+        <munit:behavior>
+            <!-- Mock Salesforce Query Response -->
+            <munit-tools:mock-when doc:name="Mock Salesforce Query" processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Salesforce Accounts"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[
+                        {
+                            'Id': '0031234567890ABC',
+                            'Name': 'Updated Account Name',
+                            'Phone': '+1-555-9999',
+                            'BillingCity': 'Updated City'
+                        }
+                    ]]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock Database Select (Check Record Exists) - Return 1 for existing record -->
+            <munit-tools:mock-when doc:name="Mock DB Select Check" processor="db:select">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Record Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[{'record_count': 1}]]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock Database Update Operations -->
+            <munit-tools:mock-when doc:name="Mock DB Update" processor="db:update">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update Record"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[1]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <!-- Execute the main flow via HTTP GET -->
+            <http:request method="GET" doc:name="HTTP GET Request" 
+                         config-ref="HTTP_Request_configuration" 
+                         path="/api/v1/accounts/sync">
+                <http:query-params><![CDATA[#[{}]]]></http:query-params>
+            </http:request>
+        </munit:execution>
+
+        <munit:validation>
+            <!-- Verify Response Status -->
+            <munit-tools:assert-that 
+                doc:name="Assert HTTP Status 200" 
+                expression="#[attributes.statusCode]" 
+                is="#[MunitTools::equalTo(200)]"/>
+
+            <!-- Verify Records Updated -->
+            <munit-tools:assert-that 
+                doc:name="Assert Records Updated" 
+                expression="#[payload.summary.recordsUpdated]" 
+                is="#[MunitTools::equalTo(1)]"/>
+
+            <!-- Verify Records Inserted is 0 -->
+            <munit-tools:assert-that 
+                doc:name="Assert No Records Inserted" 
+                expression="#[payload.summary.recordsInserted]" 
+                is="#[MunitTools::equalTo(0)]"/>
+
+            <!-- Verify Database Update was called -->
+            <munit-tools:verify-call doc:name="Verify DB Update Call" processor="db:update">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Update Record"/>
+                </munit-tools:with-attributes>
+                <munit-tools:times is="#[MunitTools::equalTo(1)]"/>
+            </munit-tools:verify-call>
+
+            <!-- Verify Database Insert was not called -->
+            <munit-tools:verify-call doc:name="Verify DB Insert Not Called" processor="db:insert">
+                <munit-tools:times is="#[MunitTools::equalTo(0)]"/>
+            </munit-tools:verify-call>
+        </munit:validation>
+    </munit:test>
+
+</mule>
